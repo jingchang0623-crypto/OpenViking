@@ -174,6 +174,8 @@ CODE_EXTENSIONS = {
     ".graphql",
     ".gql",
     ".prisma",
+    ".thrift",
+    ".conf"
 }
 
 # Documentation file extensions for file type detection

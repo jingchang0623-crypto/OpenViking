@@ -25,7 +25,7 @@ def test_lock_creation():
     print("Testing lock creation...")
     
     agfs = Mock()
-    agfs.exists = Mock(side_effect=lambda path: ".locks" in path and path.endswith(".locks"))
+    agfs.exists = Mock(side_effect=lambda path: "/local/.locks" in path and path.endswith(".locks"))
     agfs.mkdir = Mock()
     agfs.write = Mock()
     agfs.rm = Mock()

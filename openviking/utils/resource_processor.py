@@ -24,7 +24,7 @@ from openviking.resource.resource_lock import (
     ResourceLockConflictError,
     ResourceLockManager,
 )
-from tests.test_staging_manager import request_context
+from pyagfs.exceptions import AGFSHTTPError
 
 if TYPE_CHECKING:
     from openviking.parse.vlm import VLMProcessor
@@ -51,6 +51,7 @@ class ResourceProcessor:
         media_storage: Optional["StoragePath"] = None,
         max_context_size: int = 2000,
         max_split_depth: int = 3,
+        lock_manager: Optional[ResourceLockManager] = None,
     ):
         """Initialize coordinated writer."""
         self.vikingdb = vikingdb
@@ -60,7 +61,7 @@ class ResourceProcessor:
         self._vlm_processor = None
         self._media_processor = None
         self._summarizer = None
-        self._lock_manager = ResourceLockManager()
+        self._lock_manager = lock_manager
 
     def _get_summarizer(self) -> "Summarizer":
         """Lazy initialization of Summarizer."""
@@ -124,38 +125,31 @@ class ResourceProcessor:
             "source_path": None,
         }
 
-        start_time = time.time()
         if target:
             if not target.startswith("viking://"):
                 target = f"viking://resources/{target}"
             logger.info(f"Using target location: {target}")
-        update_ctx = UpdateContext(origin_url=path, target_uri=target, request_context=ctx)
+        update_ctx = UpdateContext(source_url=path, target_uri=target, request_context=ctx)
         update_ctx.scope = scope
 
          # 先获得锁资源，判断是否可以进行写操作，以及是否是增量更新模式
-        await self._acquire_lock(update_ctx)
-
         try:
-            with viking_fs.bind_request_context(ctx):
-                await viking_fs.stat(target, ctx=ctx)
-                # 如果执行到这里，说明资源存在，进入增量更新模式
-                update_ctx.is_incremental = True
-                logger.info(
-                    f"Resource exists, performing incremental update: {target}"
-                )
-                
-        except AGFSHTTPError as e:
-            if e.status_code == 404:
-                logger.info(f"Resource not found, performing full update: {target}")
+            await self._acquire_lock(update_ctx)
         except ResourceLockConflictError as e:
             self._release_lock(update_ctx)
             logger.warning(f"Resource lock conflict: {e}")
             result["status"] = "error"
             result["errors"].append(f"Resource lock conflict: {e}")
             return result
+        viking_fs = get_viking_fs()
+        
+        with viking_fs.bind_request_context(ctx):
+            update_ctx.is_incremental = await viking_fs.exists(target, ctx=ctx)
+            logger.info(
+                f"Resource exists: {update_ctx.is_incremental}, target: {target}"
+            )
 
         # ============ Phase 1: Parse source and writes to temp viking fs ============
-        viking_fs = get_viking_fs()
         try:
             media_processor = self._get_media_processor()
             # Use reason as instruction fallback so it influences L0/L1
@@ -184,6 +178,10 @@ class ResourceProcessor:
                 result["errors"].extend(parse_result.warnings)
             update_ctx.temp_vikingfs_path = parse_result.temp_dir_path
             update_ctx.source_format = parse_result.source_format
+            
+            # Pass document name from parser to TreeBuilder (avoid duplicate logic)
+            if "repo_name" in parse_result.meta:
+                update_ctx.document_name = parse_result.meta["repo_name"]
 
         except Exception as e:
             self._release_lock(update_ctx)
@@ -202,7 +200,7 @@ class ResourceProcessor:
         try:
             with get_viking_fs().bind_request_context(ctx):
                 context_tree = await self.tree_builder.finalize_from_temp(
-                    update_context=update_ctx,
+                    update_ctx=update_ctx,
                 )
                 if context_tree and context_tree.root:
                     result["root_uri"] = context_tree.root.uri
@@ -220,7 +218,7 @@ class ResourceProcessor:
             return result
 
         # ============ Phase 4: Optional Steps ============
-        lock_resource_uri = update_ctx.resource_uri
+        lock_resource_uri = update_ctx.target_uri
         lock_id = update_ctx.lock_info.lock_id if update_ctx.lock_info else ""
         
         if summarize:
@@ -259,104 +257,6 @@ class ResourceProcessor:
 
         return result
 
-    async def update_resource(
-        self,
-        resource_uri: str,
-        source_path: str,
-        ctx: Optional[RequestContext] = None,
-        wait: bool = False,
-    ) -> IncrementalUpdateResult:
-        """
-        Perform incremental resource update.
-        
-        Args:
-            resource_uri: Target resource URI
-            source_path: Source path (local path or URL)
-            ctx: Request context
-            wait: Whether to wait for completion
-            
-        Returns:
-            IncrementalUpdateResult object
-        """
-        start_time = time.time()
-        
-        update_ctx = UpdateContext(resource_uri=resource_uri)
-        
-        result = IncrementalUpdateResult(
-            success=False,
-            resource_uri=resource_uri,
-            is_incremental=False,
-        )
-        
-        try:
-            logger.info(
-                f"Updating resource: {resource_uri}, source_path: {source_path}"
-            )
-
-            
-            self._log_step(
-                "start_update",
-                update_ctx,
-                is_incremental=is_incremental,
-                source_path=source_path,
-            )
-            
-            
-            lock_info = await self._acquire_lock(update_ctx)
-            result.lock_id = lock_info.lock_id
-            
-            staging_area = self._create_staging_area(update_ctx)
-            result.staging_id = staging_area.staging_id
-            
-            self._upload_to_staging(update_ctx, source_path)
-            
-            old_hashes = self._collect_old_hashes(update_ctx)
-            new_hashes = self._collect_new_hashes(update_ctx)
-            
-            diff_result = self._detect_diff(update_ctx)
-            result.diff_stats = diff_result.get_stats()
-            
-            if not diff_result.has_changes():
-                logger.info(f"No changes detected, skipping update: {resource_uri}")
-                result.success = True
-                result.duration_ms = int((time.time() - start_time) * 1000)
-                return result
-            
-            reuse_plan = await self._prepare_reuse_plan(update_ctx)
-            result.reuse_stats = reuse_plan.get("stats")
-            
-            publication_result = await self._publish(update_ctx)
-            result.publication_result = publication_result.to_dict()
-            
-            result.success = publication_result.success
-            if not result.success:
-                result.error_message = publication_result.error_message
-                result.error_stage = "publish"
-            
-        except ResourceLockConflictError as e:
-            self._log_error("acquire_lock", update_ctx, e)
-            result.error_message = str(e)
-            result.error_stage = "acquire_lock"
-            
-        except Exception as e:
-            self._log_error("unknown", update_ctx, e)
-            result.error_message = str(e)
-            result.error_stage = "unknown"
-            
-        finally:
-            self._cleanup_staging(update_ctx)
-            self._release_lock(update_ctx)
-            
-            result.duration_ms = int((time.time() - start_time) * 1000)
-            
-            self._log_step(
-                "update_completed",
-                update_ctx,
-                success=result.success,
-                duration_ms=result.duration_ms,
-            )
-        
-        return result
 
     def _log_step(self, step: str, ctx: UpdateContext, **kwargs) -> None:
             """Log a step with structured context."""
@@ -369,15 +269,14 @@ class ResourceProcessor:
     async def _acquire_lock(
         self,
         ctx: UpdateContext,
-        operation: str = "incremental_update",
         ttl: int = 3600,
     ) -> LockInfo:
         """Acquire resource lock."""
         self._log_step("acquire_lock", ctx)
         
         lock_info = self._lock_manager.acquire_lock(
-            resource_uri=ctx.resource_uri,
-            operation=operation,
+            resource_uri=ctx.target_uri,
+            operation="incremental_update" if ctx.is_incremental else "full_update",
             ttl=ttl,
         )
         
@@ -391,7 +290,7 @@ class ResourceProcessor:
         if not ctx.lock_info:
             return True
         
-        self._log_stage("release_lock", ctx, lock_id=ctx.lock_info.lock_id)
+        self._log_step("release_lock", ctx, lock_id=ctx.lock_info.lock_id)
         
         return self._lock_manager.release_lock(
             resource_uri=ctx.resource_uri,

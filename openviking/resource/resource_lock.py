@@ -88,6 +88,7 @@ class ResourceLockManager:
     LOCK_DIR = ".locks"
     LOCK_FILE_SUFFIX = ".lock"
     DEFAULT_TTL = 3600
+    AGFS_MOUNT_PATH = "/local"
     
     def __init__(self, agfs: Any, default_ttl: Optional[int] = None):
         """
@@ -99,7 +100,7 @@ class ResourceLockManager:
         """
         self._agfs = agfs
         self._default_ttl = default_ttl or self.DEFAULT_TTL
-        self._lock_dir_path = f"/{self.LOCK_DIR}"
+        self._lock_dir_path = f"{self.AGFS_MOUNT_PATH}/{self.LOCK_DIR}"
         
     def _get_lock_file_path(self, resource_uri: str) -> str:
         """
@@ -109,7 +110,7 @@ class ResourceLockManager:
             resource_uri: Resource URI (e.g., "viking://default/resources/my-repo")
             
         Returns:
-            Lock file path (e.g., "/.locks/viking___default___resources___my-repo.lock")
+            Lock file path (e.g., "/local/.locks/viking___default___resources___my-repo.lock")
         """
         safe_uri = resource_uri.replace("://", "___").replace("/", "___").replace(".", "_")
         return f"{self._lock_dir_path}/{safe_uri}{self.LOCK_FILE_SUFFIX}"
@@ -117,7 +118,7 @@ class ResourceLockManager:
     def _ensure_lock_dir(self) -> None:
         """Ensure lock directory exists."""
         try:
-            if not self._agfs.exists(self._lock_dir_path):
+            if not self.exists(self._lock_dir_path):
                 self._agfs.mkdir(self._lock_dir_path)
                 logger.info(f"Created lock directory: {self._lock_dir_path}")
         except Exception as e:
@@ -135,7 +136,7 @@ class ResourceLockManager:
         
         Args:
             resource_uri: Resource URI to lock
-            operation: Operation name (e.g., "add_resource", "update_resource")
+            operation: Operation name (e.g., "incremental_update", "full_update")
             ttl: Lock TTL in seconds (default: use default_ttl)
             metadata: Additional metadata to store with lock
             
@@ -161,7 +162,8 @@ class ResourceLockManager:
         )
         
         try:
-            if self._agfs.exists(lock_file):
+            if self.exists(lock_file):
+                logger.debug(f"Lock file exists: {lock_file}")
                 existing_lock = self._read_lock(lock_file)
                 if existing_lock and not existing_lock.is_expired():
                     logger.warning(
@@ -205,7 +207,7 @@ class ResourceLockManager:
         lock_file = self._get_lock_file_path(resource_uri)
         
         try:
-            if not self._agfs.exists(lock_file):
+            if not self.exists(lock_file):
                 logger.debug(f"Lock file not found: {lock_file}")
                 return False
             
@@ -239,7 +241,7 @@ class ResourceLockManager:
         lock_file = self._get_lock_file_path(resource_uri)
         
         try:
-            if not self._agfs.exists(lock_file):
+            if not self.exists(lock_file):
                 return False
             
             lock_info = self._read_lock(lock_file)
@@ -270,7 +272,7 @@ class ResourceLockManager:
         lock_file = self._get_lock_file_path(resource_uri)
         
         try:
-            if not self._agfs.exists(lock_file):
+            if not self.exists(lock_file):
                 return None
             
             lock_info = self._read_lock(lock_file)
@@ -308,7 +310,7 @@ class ResourceLockManager:
         cleaned = 0
         
         try:
-            if not self._agfs.exists(self._lock_dir_path):
+            if not self.exists(self._lock_dir_path):
                 return 0
             
             lock_files = self._agfs.listdir(self._lock_dir_path)
@@ -344,7 +346,7 @@ class ResourceLockManager:
         cleaned = 0
         
         try:
-            if not self._agfs.exists(self._lock_dir_path):
+            if not self.exists(self._lock_dir_path):
                 return 0
             
             lock_files = self._agfs.listdir(self._lock_dir_path)
@@ -365,6 +367,23 @@ class ResourceLockManager:
         except Exception as e:
             logger.error(f"Failed to cleanup all locks: {e}")
             return cleaned
+    
+    def exists(self, uri: str) -> bool:
+        """
+        Check if a URI exists using AGFS stat interface.
+        
+        Args:
+            uri: URI to check (e.g., "viking://default/resources/my-repo")
+            
+        Returns:
+            True if URI exists, False otherwise
+        """
+        try:
+            self._agfs.stat(uri)
+            return True
+        except Exception as e:
+            logger.debug(f"URI does not exist: {uri}, error: {e}")
+            return False
     
     @contextmanager
     def lock(

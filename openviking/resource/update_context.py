@@ -14,14 +14,15 @@ class UpdateContext:
     
     source_url: str
     target_uri:str
-    temp_local_path: str
-    temp_vikingfs_path: str
+    temp_local_path: Optional[str] = None
+    temp_vikingfs_path: Optional[str] = None
     request_context: Optional[RequestContext] = None
     lock_info: Optional[LockInfo] = None
     is_incremental: bool = False
     source_format: Optional[str] = None
     source_scope: Optional[str] = "resources"
     trigger_semantic: bool = False
+    document_name: Optional[str] = None  # Document name determined by parser (e.g., "org/repo" for GitHub repos)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -34,4 +35,5 @@ class UpdateContext:
             "source_format": self.source_format,
             "source_scope": self.source_scope,
             "trigger_semantic": self.trigger_semantic,
+            "document_name": self.document_name,
         }

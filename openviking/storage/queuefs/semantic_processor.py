@@ -363,8 +363,8 @@ class SemanticProcessor(DequeueHandlerBase):
             try:
                 from openviking.resource.resource_lock import ResourceLockManager
                 viking_fs = get_viking_fs()
-                if hasattr(viking_fs, 'agfs') and viking_fs.agfs:
-                    lock_manager = ResourceLockManager(viking_fs.agfs)
+                if viking_fs:
+                    lock_manager = ResourceLockManager(viking_fs)
                     success = lock_manager.release_lock(
                         resource_uri=lock_resource_uri,
                         lock_id=lock_id,
@@ -374,7 +374,7 @@ class SemanticProcessor(DequeueHandlerBase):
                     else:
                         logger.warning(f"Failed to release lock for resource {lock_resource_uri}, lock_id={lock_id}")
                 else:
-                    logger.warning("Cannot release lock: agfs not available")
+                    logger.warning("Cannot release lock: viking_fs not available")
             except Exception as e:
                 logger.error(f"Error releasing lock for {lock_resource_uri}: {e}", exc_info=True)
         
