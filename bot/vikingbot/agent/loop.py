@@ -221,7 +221,7 @@ class AgentLoop:
         session_key: SessionKey,
         publish_events: bool = True,
         sender_id: str | None = None,
-    ) -> tuple[str | None, list[dict]]:
+    ) -> tuple[str | None, list[dict], int]:
         """
         Run the core agent loop: call LLM, execute tools, repeat until done.
 
@@ -362,7 +362,7 @@ class AgentLoop:
             else:
                 final_content = "I've completed processing but have no response to give."
 
-        return final_content, tools_used
+        return final_content, tools_used, iteration
 
     @trace(
         name="process_message",
@@ -489,7 +489,7 @@ class AgentLoop:
             # logger.info(f"New messages: {messages}")
 
             # Run agent loop
-            final_content, tools_used = await self._run_agent_loop(
+            final_content, tools_used, iteration = await self._run_agent_loop(
                 messages=messages,
                 session_key=session_key,
                 publish_events=True,
@@ -513,7 +513,8 @@ class AgentLoop:
                 content=final_content,
                 metadata=msg.metadata,
                 token_usage=self._token_usage,
-                time_cost=time_cost
+                time_cost=time_cost,
+                iteration=iteration
                 or {},  # Pass through for channel-specific needs (e.g. Slack thread_ts)
             )
         finally:
@@ -541,7 +542,7 @@ class AgentLoop:
         )
 
         # Run agent loop (no events published)
-        final_content, tools_used = await self._run_agent_loop(
+        final_content, tools_used, iteration = await self._run_agent_loop(
             messages=messages,
             session_key=msg.session_key,
             publish_events=False,
