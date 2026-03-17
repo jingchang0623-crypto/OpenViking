@@ -289,7 +289,7 @@ class VikingClient:
             return None
 
     async def search_memory(
-        self, query: str, user_id: str, limit: int = 10
+        self, query: str, user_id: str, agent_user_id: str, limit: int = 10
     ) -> dict[str, list[Any]]:
         """通过上下文消息，检索viking 的user、Agent memory。
 
@@ -313,7 +313,7 @@ class VikingClient:
             target_uri=uri_user_memory,
             limit=limit,
         )
-        agent_space_name = self.get_agent_space_name(user_id)
+        agent_space_name = self.get_agent_space_name(agent_user_id)
         uri_agent_memory = f"viking://agent/{agent_space_name}/memories/"
         agent_memory = await self.client.find(
             query=query,
@@ -440,11 +440,11 @@ async def main_test():
     # res = client.list_resources()
     # res = await client.search("头有点疼", target_uri="viking://user/memories/")
     # res = await client.get_viking_memory_context("123", current_message="头疼", history=[])
-    # res = await client.search_memory("你好", "user_1")
+    res = await client.search_memory("你好", "default", "default")
     # res = await client.list_resources("viking://resources/")
-    # res = await client.read_content("viking://user/memories/profile.md", level="read")
+    # res = await client.read_content("viking://user/default/memories/events", level="abstract")
     # res = await client.add_resource("https://github.com/volcengine/OpenViking", "ov代码")
-    res = await client.grep("viking://resources/", "viking", True)
+    # res = await client.grep("viking://resources/", "viking", True)
     # res = await client.commit(
     #     session_id="99999",
     #     messages=[{"role": "user", "content": "你好"}],

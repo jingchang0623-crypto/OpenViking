@@ -135,21 +135,21 @@ Skills with available="false" need dependencies installed first - you can try in
 {skills_summary}""")
 
         # Viking user profile
-        start = _time.time()
-        profile = await self.memory.get_viking_user_profile(
-            workspace_id=workspace_id, user_id=self._sender_id
-        )
-        cost = round(_time.time() - start, 2)
-        logger.info(
-            f"[READ_USER_PROFILE]: cost {cost}s, profile={profile[:50] if profile else 'None'}"
-        )
-        if profile:
-            parts.append(f"## Current user's information\n{profile}")
+        # start = _time.time()
+        # profile = await self.memory.get_viking_user_profile(
+        #     workspace_id=workspace_id, user_id=self._sender_id
+        # )
+        # cost = round(_time.time() - start, 2)
+        # logger.info(
+        #     f"[READ_USER_PROFILE]: cost {cost}s, profile={profile[:50] if profile else 'None'}"
+        # )
+        # if profile:
+        #     parts.append(f"## Current user's information\n{profile}")
 
         return "\n\n---\n\n".join(parts)
 
     async def _build_user_memory(
-        self, session_key: SessionKey, current_message: str, history: list[dict[str, Any]]
+        self, session_key: SessionKey, current_message: str, sender_id: str
     ) -> str:
         """
         Build the system prompt from bootstrap files, memory, and skills.
@@ -170,7 +170,7 @@ Skills with available="false" need dependencies installed first - you can try in
         # Viking agent memory
         start = _time.time()
         viking_memory = await self.memory.get_viking_memory_context(
-            current_message=current_message, workspace_id=workspace_id
+            current_message=current_message, workspace_id=workspace_id, sender_id=sender_id
         )
         cost = round(_time.time() - start, 2)
         logger.info(
@@ -178,7 +178,9 @@ Skills with available="false" need dependencies installed first - you can try in
         )
         if viking_memory:
             parts.append(
-                f"## Your memories about the current conversation. If you need to know more details, please use the tools.\n{viking_memory}"
+                f"## Long term memory about this conversation.\n"
+                f"You do not need to use tool to search again:\n"
+                f"{viking_memory}"
             )
 
         return "\n\n---\n\n".join(parts)
@@ -201,10 +203,7 @@ Skills with available="false" need dependencies installed first - you can try in
 You are VikingBot, an AI assistant built based on the OpenViking context database.
 When acquiring information, data, and knowledge, you **prioritize using openviking tools to read and search OpenViking (a context database) above all other sources**.
 You have access to tools that allow you to:
-- Read, search, and grep OpenViking files
-- Read, write, and edit local files
-- Execute shell commands
-- Search the web and fetch web pages
+- Read OpenViking files
 - Send messages to users on chat channels
 - Spawn subagents for complex background tasks
 
@@ -215,8 +214,6 @@ You have access to tools that allow you to:
 You have two workspaces:
 1. Local workspace: {workspace_display}
 2. OpenViking workspace: managed via OpenViking tools
-- Long-term memory: using user_memory_search tool to search memory
-- History log: tow types, a. using user_memory_search tool to search history; b. memory/HISTORY.md (grep-searchable)
 - Custom skills: {workspace_display}/skills/{{skill-name}}/SKILL.md
 
 IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.
@@ -226,8 +223,7 @@ For normal conversation, just respond with text - do not call the message tool.
 Always be helpful, accurate, and concise. When using tools, think step by step: what you know, what you need, and why you chose this tool.
 
 ## Memory
-- Remember important facts: using openviking_memory_commit tool to commit
-- Recall past events: prioritize using user_memory_search tool to search history"""
+- Remember important facts: using openviking_memory_commit tool to commit"""
 
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
@@ -266,7 +262,7 @@ Always be helpful, accurate, and concise. When using tools, think step by step: 
         # System prompt
         system_prompt = await self.build_system_prompt(session_key, current_message, history)
         messages.append({"role": "system", "content": system_prompt})
-        # logger.debug(f"system_prompt: {system_prompt}")
+        logger.debug(f"system_prompt: {system_prompt}")
 
         # History
         if not self._eval:
@@ -277,8 +273,9 @@ Always be helpful, accurate, and concise. When using tools, think step by step: 
         messages.append({"role": "user", "content": user_content})
 
         # User
-        user_info = await self._build_user_memory(session_key, current_message, history)
+        user_info = await self._build_user_memory(session_key, current_message, self._sender_id)
         messages.append({"role": "system", "content": user_info})
+        logger.debug(f"user_info: {user_info}")
 
         return messages
 

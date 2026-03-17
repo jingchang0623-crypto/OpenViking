@@ -13,8 +13,11 @@ from vikingbot.agent.tools.ov_file import (
     VikingGrepTool,
     VikingGlobTool,
     VikingSearchUserMemoryTool,
+    VikingSearchUserMemoryToolV2,
+    VikingMultiReadTool,
     VikingMemoryCommitTool,
     VikingAddResourceTool,
+    VikingUserProfileTool,
 )
 from vikingbot.agent.tools.registry import ToolRegistry
 from vikingbot.agent.tools.shell import ExecTool
@@ -66,10 +69,10 @@ def register_default_tools(
     provider_api_base = agent_config.api_base if agent_config else None
     gen_image_model = agent_config.gen_image_model
     # File tools
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(EditFileTool())
-    registry.register(ListDirTool())
+    # registry.register(ReadFileTool())
+    # registry.register(WriteFileTool())
+    # registry.register(EditFileTool())
+    # registry.register(ListDirTool())
 
     # Shell tool
     registry.register(
@@ -79,20 +82,23 @@ def register_default_tools(
     )
 
     # Web tools
-    registry.register(
-        WebSearchTool(backend="auto", brave_api_key=brave_api_key, exa_api_key=exa_api_key)
-    )
-    registry.register(WebFetchTool())
+    # registry.register(
+    #     WebSearchTool(backend="auto", brave_api_key=brave_api_key, exa_api_key=exa_api_key)
+    # )
+    # registry.register(WebFetchTool())
 
     # Open Viking tools
     if include_viking_tools:
-        registry.register(VikingReadTool())
-        registry.register(VikingListTool())
-        registry.register(VikingSearchTool())
-        registry.register(VikingGrepTool())
-        registry.register(VikingGlobTool())
-        registry.register(VikingSearchUserMemoryTool())
-        registry.register(VikingMemoryCommitTool())
+        # registry.register(VikingReadTool())
+        registry.register(VikingMultiReadTool())
+        # registry.register(VikingListTool())
+        # registry.register(VikingSearchTool())
+        # registry.register(VikingGrepTool())
+        # registry.register(VikingGlobTool())
+        # registry.register(VikingUserProfileTool())
+        # registry.register(VikingSearchUserMemoryTool())
+        # registry.register(VikingSearchUserMemoryToolV2())
+        # registry.register(VikingMemoryCommitTool())
         if not config.read_only:
             registry.register(VikingAddResourceTool())
 

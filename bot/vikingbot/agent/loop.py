@@ -508,13 +508,18 @@ class AgentLoop:
             await self.sessions.save(session)
 
             time_cost = round(time.time() - start_time, 2)
+            if tools_used is not None:
+                tools_used_names = [tool["tool_name"] for tool in tools_used]
+            else:
+                tools_used_names = []
             return OutboundMessage(
                 session_key=msg.session_key,
                 content=final_content,
                 metadata=msg.metadata,
                 token_usage=self._token_usage,
                 time_cost=time_cost,
-                iteration=iteration
+                iteration=iteration,
+                toos_used_names=tools_used_names
                 or {},  # Pass through for channel-specific needs (e.g. Slack thread_ts)
             )
         finally:
